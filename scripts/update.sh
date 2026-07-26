@@ -27,7 +27,7 @@ echo "Baixando a versão mais recente..."
 sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" pull --ff-only
 
 echo "Atualizando dependências e o serviço..."
-SKIP_APT=1 "${PROJECT_DIR}/install.sh"
+SKIP_APT=1 bash "${PROJECT_DIR}/install.sh"
 
 echo
 echo "Atualização concluída. Versão: $(cat "${PROJECT_DIR}/VERSION" 2>/dev/null || echo atual)"
