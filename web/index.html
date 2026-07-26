@@ -13,36 +13,34 @@
       <button class="frequency-card" id="frequencyButton" type="button" aria-haspopup="dialog" aria-controls="frequencyDialog">
         <span class="frequency-hint">TOQUE PARA SINTONIZAR</span>
         <span class="frequency-row">
-          <strong id="frequencyDisplay">27.185</strong>
+          <strong id="frequencyDisplay">91.900</strong>
           <span>MHz</span>
         </span>
         <span class="frequency-meta">
-          <span id="channelDisplay">PX · Canal 19</span>
-          <span id="modeDisplay">AM</span>
+          <span id="channelDisplay">Rádio Capital 91</span>
+          <span id="modeDisplay">WFM</span>
         </span>
       </button>
 
       <div class="header-controls">
         <label>
-          <span>Banda</span>
+          <span>Banda · auto</span>
           <select id="bandSelect">
-            <option value="fm">FM comercial</option>
+            <option value="fm" selected>FM comercial</option>
             <option value="air">Aeronáutica</option>
             <option value="vhf">Radioamador VHF</option>
             <option value="uhf">Radioamador UHF</option>
-            <option value="cb" selected>PX / CB 11 m</option>
+            <option value="cb">PX / CB 11 m</option>
           </select>
         </label>
 
         <div class="compact-row">
           <label>
-            <span>Modo</span>
+            <span>Modo · auto</span>
             <select id="modeSelect">
-              <option value="AM" selected>AM</option>
+              <option value="AM">AM</option>
               <option value="NFM">NFM</option>
-              <option value="WFM">WFM</option>
-              <option value="USB">USB</option>
-              <option value="LSB">LSB</option>
+              <option value="WFM" selected>WFM</option>
             </select>
           </label>
 
@@ -64,11 +62,11 @@
           <span>Passo</span>
           <select id="stepSelect">
             <option value="1">1 kHz</option>
-            <option value="5" selected>5 kHz</option>
+            <option value="5">5 kHz</option>
             <option value="10">10 kHz</option>
             <option value="12.5">12,5 kHz</option>
             <option value="25">25 kHz</option>
-            <option value="100">100 kHz</option>
+            <option value="100" selected>100 kHz</option>
           </select>
         </label>
       </div>
@@ -83,16 +81,16 @@
           <line x1="180" y1="131" x2="180" y2="29"></line>
           <circle cx="180" cy="131" r="8"></circle>
         </g>
-        <text class="meter-label" x="180" y="79" text-anchor="middle">SINAL</text>
+        <text class="meter-label" x="180" y="79" text-anchor="middle">NÍVEL REAL</text>
         <text class="meter-value" id="signalDisplay" x="180" y="104" text-anchor="middle">S5.0</text>
-        <text class="meter-dbm" id="dbmDisplay" x="180" y="122" text-anchor="middle">−103 dBm</text>
+        <text class="meter-dbm" id="dbmDisplay" x="180" y="122" text-anchor="middle">−90 dBFS</text>
       </svg>
     </section>
 
     <footer class="radio-controls">
       <button class="tune-button" id="tuneDownButton" type="button" aria-label="Diminuir frequência">
         <span aria-hidden="true">−</span>
-        <small id="downStepLabel">5 kHz</small>
+        <small id="downStepLabel">100 kHz</small>
       </button>
 
       <button class="receiver-button" id="receiverButton" type="button" aria-pressed="false">
@@ -100,9 +98,14 @@
         <span id="receiverButtonLabel">Iniciar</span>
       </button>
 
+      <button class="scanner-button" id="scannerButton" type="button" aria-haspopup="dialog" aria-controls="scannerDialog">
+        <span aria-hidden="true">⌁</span>
+        <small>Scanner</small>
+      </button>
+
       <button class="tune-button" id="tuneUpButton" type="button" aria-label="Aumentar frequência">
         <span aria-hidden="true">+</span>
-        <small id="upStepLabel">5 kHz</small>
+        <small id="upStepLabel">100 kHz</small>
       </button>
 
       <label class="volume-control">
@@ -122,12 +125,12 @@
       <div class="keypad-header">
         <div>
           <span id="frequencyDialogTitle">DIGITAR FREQUÊNCIA</span>
-          <strong><output id="frequencyInputDisplay">27.185</output> <small>MHz</small></strong>
+          <strong><output id="frequencyInputDisplay">91.900</output> <small>MHz</small></strong>
         </div>
         <button class="close-button" id="frequencyCloseButton" type="button" aria-label="Fechar teclado">×</button>
       </div>
 
-      <input id="frequencyInput" type="text" inputmode="decimal" autocomplete="off" maxlength="8" value="27.185" aria-label="Frequência em megahertz">
+      <input id="frequencyInput" type="text" inputmode="decimal" autocomplete="off" maxlength="8" value="91.900" aria-label="Frequência em megahertz">
       <p class="keypad-error" id="frequencyError" role="alert" hidden>Use um valor entre 24.000 e 1766.000 MHz.</p>
 
       <div class="numeric-keypad" aria-label="Teclado numérico">
@@ -150,6 +153,50 @@
         <button class="primary-action" type="submit">Sintonizar</button>
       </div>
     </form>
+  </div>
+
+  <div class="frequency-dialog" id="scannerDialog" role="dialog" aria-modal="true" aria-labelledby="scannerDialogTitle" hidden>
+    <section class="scanner-panel">
+      <div class="keypad-header">
+        <div>
+          <span id="scannerDialogTitle">SCANNER DE BANDA</span>
+          <strong id="scannerFrequency">Pronto</strong>
+        </div>
+        <button class="close-button" id="scannerCloseButton" type="button" aria-label="Fechar scanner">×</button>
+      </div>
+
+      <div class="scanner-summary">
+        <span id="scannerStatus">Escolha a banda e toque em Varrer.</span>
+        <strong id="scannerStation">—</strong>
+        <small id="scannerPower">O rádio para de tocar durante a medição.</small>
+      </div>
+
+      <label class="scanner-field">
+        <span>Banda a varrer</span>
+        <select id="scannerBand">
+          <option value="fm">FM comercial</option>
+          <option value="air">Aeronáutica</option>
+          <option value="vhf">Radioamador VHF</option>
+          <option value="uhf">Radioamador UHF</option>
+          <option value="cb">PX / CB 11 m</option>
+        </select>
+      </label>
+
+      <label class="scanner-field">
+        <span>Sensibilidade <output id="scannerSensitivityDisplay">8 dB</output></span>
+        <input id="scannerSensitivity" type="range" min="3" max="20" value="8">
+      </label>
+
+      <div class="scanner-progress" aria-label="Progresso da varredura">
+        <span id="scannerProgress"></span>
+      </div>
+
+      <div class="scanner-actions">
+        <button id="scannerPreviousButton" type="button">◀ Anterior</button>
+        <button class="primary-action" id="scannerStartButton" type="button">Varrer</button>
+        <button id="scannerNextButton" type="button">Próximo ▶</button>
+      </div>
+    </section>
   </div>
 
   <script src="./app.js"></script>

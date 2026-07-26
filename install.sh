@@ -66,15 +66,37 @@ fi
 usermod -a -G audio,plugdev "${TARGET_USER}" || true
 
 if [[ ! -f "${ENV_FILE}" ]]; then
+  AUDIO_DEVICE="default"
+  AUDIO_CARD=""
+  if aplay -l 2>/dev/null | grep -q "Headphones"; then
+    AUDIO_DEVICE="plughw:CARD=Headphones,DEV=0"
+    AUDIO_CARD="1"
+  fi
   cat >"${ENV_FILE}" <<'EOF'
 # auto: usa o RTL-SDR quando encontrado e simulação quando ele não está conectado.
 RADIO_DRIVER=auto
 RADIO_HOST=0.0.0.0
 RADIO_PORT=5000
-
-# Se o volume não responder, experimente PCM, Master ou Headphone.
-# RADIO_AUDIO_MIXER=PCM
 EOF
+  {
+    echo "RADIO_AUDIO_DEVICE=${AUDIO_DEVICE}"
+    echo "RADIO_AUDIO_MIXER=PCM"
+    if [[ -n "${AUDIO_CARD}" ]]; then
+      echo "RADIO_AUDIO_CARD=${AUDIO_CARD}"
+    fi
+  } >>"${ENV_FILE}"
+else
+  if ! grep -q '^RADIO_AUDIO_DEVICE=' "${ENV_FILE}"; then
+    if aplay -l 2>/dev/null | grep -q "Headphones"; then
+      echo "RADIO_AUDIO_DEVICE=plughw:CARD=Headphones,DEV=0" >>"${ENV_FILE}"
+      echo "RADIO_AUDIO_CARD=1" >>"${ENV_FILE}"
+    else
+      echo "RADIO_AUDIO_DEVICE=default" >>"${ENV_FILE}"
+    fi
+  fi
+  if ! grep -q '^RADIO_AUDIO_MIXER=' "${ENV_FILE}"; then
+    echo "RADIO_AUDIO_MIXER=PCM" >>"${ENV_FILE}"
+  fi
 fi
 
 cat >"${SERVICE_FILE}" <<EOF
@@ -123,3 +145,5 @@ echo "  sudo ./scripts/install-kiosk.sh"
 echo
 echo "IMPORTANTE: reinicie o Raspberry Pi para liberar o RTL-SDR:"
 echo "  sudo reboot"
+echo
+echo "O scanner usa rtl_power e já foi instalado junto com rtl-sdr."

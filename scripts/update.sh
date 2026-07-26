@@ -30,4 +30,4 @@ echo "Atualizando dependências e o serviço..."
 SKIP_APT=1 "${PROJECT_DIR}/install.sh"
 
 echo
-echo "Atualização concluída."
+echo "Atualização concluída. Versão: $(cat "${PROJECT_DIR}/VERSION" 2>/dev/null || echo atual)"

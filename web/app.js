@@ -4,8 +4,8 @@
   var BANDS = {
     fm: {
       label: "FM comercial",
-      channel: "FM comercial",
-      frequency: 99.300,
+      channel: "Rádio Capital 91",
+      frequency: 91.900,
       mode: "WFM",
       step: 100
     },
@@ -21,7 +21,7 @@
       channel: "Chamada VHF",
       frequency: 145.500,
       mode: "NFM",
-      step: 5
+      step: 12.5
     },
     uhf: {
       label: "Radioamador UHF",
@@ -35,20 +35,30 @@
       channel: "PX · Canal 19",
       frequency: 27.185,
       mode: "AM",
-      step: 5
+      step: 10
     }
   };
 
   var state = {
-    frequency: 27.185,
-    band: "cb",
-    channel: "PX · Canal 19",
-    mode: "AM",
-    step: 5,
+    frequency: 91.900,
+    band: "fm",
+    channel: "Rádio Capital 91",
+    mode: "WFM",
+    step: 100,
     volume: 65,
     running: false,
     signal: 35,
     driver: "simulation",
+    signalDbfs: -90,
+    signalSource: "simulation",
+    scanner: {
+      active: false,
+      phase: "idle",
+      progress: 0,
+      message: "Scanner pronto.",
+      candidates: [],
+      current_index: -1
+    },
     apiOnline: window.location.protocol !== "file:"
   };
 
@@ -75,6 +85,7 @@
     upStepLabel: document.getElementById("upStepLabel"),
     receiverButton: document.getElementById("receiverButton"),
     receiverButtonLabel: document.getElementById("receiverButtonLabel"),
+    scannerButton: document.getElementById("scannerButton"),
     volumeInput: document.getElementById("volumeInput"),
     volumeDisplay: document.getElementById("volumeDisplay"),
     message: document.getElementById("message"),
@@ -85,7 +96,20 @@
     frequencyError: document.getElementById("frequencyError"),
     frequencyCloseButton: document.getElementById("frequencyCloseButton"),
     frequencyCancelButton: document.getElementById("frequencyCancelButton"),
-    frequencyDeleteButton: document.getElementById("frequencyDeleteButton")
+    frequencyDeleteButton: document.getElementById("frequencyDeleteButton"),
+    scannerDialog: document.getElementById("scannerDialog"),
+    scannerCloseButton: document.getElementById("scannerCloseButton"),
+    scannerBand: document.getElementById("scannerBand"),
+    scannerSensitivity: document.getElementById("scannerSensitivity"),
+    scannerSensitivityDisplay: document.getElementById("scannerSensitivityDisplay"),
+    scannerStatus: document.getElementById("scannerStatus"),
+    scannerStation: document.getElementById("scannerStation"),
+    scannerPower: document.getElementById("scannerPower"),
+    scannerFrequency: document.getElementById("scannerFrequency"),
+    scannerProgress: document.getElementById("scannerProgress"),
+    scannerStartButton: document.getElementById("scannerStartButton"),
+    scannerPreviousButton: document.getElementById("scannerPreviousButton"),
+    scannerNextButton: document.getElementById("scannerNextButton")
   };
 
   var messageTimer = null;
@@ -183,7 +207,7 @@
     };
   }
 
-  function updateMeter(percent) {
+  function updateMeter(percent, dbfs, source) {
     var safePercent = clamp(Number(percent) || 0, 0, 100);
     var angle = 201 + (339 - 201) * (safePercent / 100);
     var reading = signalReading(safePercent);
@@ -191,8 +215,13 @@
     elements.meterNeedle.style.transform = "rotate(" + (angle - 270).toFixed(2) + "deg)";
     elements.meterNeedle.classList.toggle("is-hot", safePercent > 70);
     elements.signalDisplay.textContent = reading.label;
-    elements.dbmDisplay.textContent =
-      (reading.dbm < 0 ? "−" + Math.abs(reading.dbm) : String(reading.dbm)) + " dBm";
+    if (source === "audio_rms" && Number.isFinite(dbfs)) {
+      elements.dbmDisplay.textContent =
+        (dbfs < 0 ? "−" + Math.abs(dbfs).toFixed(1) : dbfs.toFixed(1)) + " dBFS";
+    } else {
+      elements.dbmDisplay.textContent =
+        (reading.dbm < 0 ? "−" + Math.abs(reading.dbm) : String(reading.dbm)) + " relativo";
+    }
   }
 
   function driverLabel(driver) {
@@ -225,7 +254,40 @@
       elements.bandSelect.value = state.band;
     }
 
-    updateMeter(state.signal);
+    updateMeter(state.signal, state.signalDbfs, state.signalSource);
+    renderScanner();
+  }
+
+  function currentScannerCandidate() {
+    var scanner = state.scanner || {};
+    var candidates = scanner.candidates || [];
+    var index = Number(scanner.current_index);
+    return index >= 0 && candidates[index] ? candidates[index] : null;
+  }
+
+  function renderScanner() {
+    var scanner = state.scanner || {};
+    var candidate = currentScannerCandidate();
+    var scanning = scanner.phase === "scanning";
+    var hasResults = scanner.phase === "listening" && (scanner.candidates || []).length > 0;
+    elements.scannerStatus.textContent = scanner.message || "Scanner pronto.";
+    elements.scannerProgress.style.width = String(clamp(Number(scanner.progress) || 0, 0, 100)) + "%";
+    elements.scannerStartButton.textContent = scanning ? "Medindo…" : "Varrer";
+    elements.scannerStartButton.disabled = scanning;
+    elements.scannerPreviousButton.disabled = !hasResults;
+    elements.scannerNextButton.disabled = !hasResults;
+    if (candidate) {
+      elements.scannerFrequency.textContent = formatFrequency(candidate.frequency_mhz) + " MHz";
+      elements.scannerStation.textContent = candidate.name || "Sinal encontrado";
+      elements.scannerPower.textContent =
+        "Pico " + Number(candidate.power_db).toFixed(1) + " dB · " +
+        Number(candidate.above_noise_db).toFixed(1) + " dB acima do ruído";
+    } else {
+      elements.scannerFrequency.textContent = scanning ? "Varrendo…" : "Pronto";
+      elements.scannerStation.textContent = "—";
+      elements.scannerPower.textContent =
+        scanning ? "O áudio volta ao terminar." : "O rádio para de tocar durante a medição.";
+    }
   }
 
   function showMessage(text, isError) {
@@ -296,8 +358,28 @@
     if (typeof serverState.signal_percent === "number") {
       state.signal = serverState.signal_percent;
     }
+    if (typeof serverState.signal_dbfs === "number") {
+      state.signalDbfs = serverState.signal_dbfs;
+    }
+    if (typeof serverState.signal_source === "string") {
+      state.signalSource = serverState.signal_source;
+    }
     if (typeof serverState.driver === "string") {
       state.driver = serverState.driver;
+    }
+    if (serverState.bands && typeof serverState.bands === "object") {
+      Object.keys(serverState.bands).forEach(function (key) {
+        if (BANDS[key]) {
+          var plan = serverState.bands[key];
+          BANDS[key].frequency = plan.preset_mhz;
+          BANDS[key].mode = plan.mode;
+          BANDS[key].step = plan.step_khz;
+          BANDS[key].channel = plan.channel;
+        }
+      });
+    }
+    if (serverState.scanner && typeof serverState.scanner === "object") {
+      state.scanner = serverState.scanner;
     }
     render();
   }
@@ -317,7 +399,7 @@
     });
   }
 
-  function sendConfiguration(extra) {
+  function sendConfiguration(extra, autoSelect) {
     var payload = {
       frequency_mhz: state.frequency,
       band: state.band,
@@ -326,6 +408,7 @@
       step_khz: state.step,
       volume: state.volume
     };
+    payload.auto_select = Boolean(autoSelect);
 
     Object.keys(extra || {}).forEach(function (key) {
       payload[key] = extra[key];
@@ -351,9 +434,7 @@
       24,
       1766
     );
-    state.band = "manual";
-    state.channel = "Sintonia manual";
-    sendConfiguration();
+    sendConfiguration({}, true);
   }
 
   function applyBand(bandKey) {
@@ -367,7 +448,12 @@
     state.frequency = preset.frequency;
     state.mode = preset.mode;
     state.step = preset.step;
-    sendConfiguration();
+    render();
+    apiRequest("/api/band/" + encodeURIComponent(bandKey) + "/select", "POST", {})
+      .then(applyServerState)
+      .catch(function (error) {
+        showMessage(error.message, true);
+      });
   }
 
   function toggleReceiver() {
@@ -464,10 +550,43 @@
     }
 
     state.frequency = Math.round(value * 1000) / 1000;
-    state.band = "manual";
-    state.channel = "Sintonia manual";
     closeFrequencyDialog();
-    sendConfiguration();
+    sendConfiguration({}, true);
+  }
+
+  function openScannerDialog() {
+    elements.scannerBand.value = BANDS[state.band] ? state.band : "fm";
+    elements.scannerDialog.hidden = false;
+    renderScanner();
+  }
+
+  function closeScannerDialog() {
+    elements.scannerDialog.hidden = true;
+  }
+
+  function startScanner() {
+    var band = elements.scannerBand.value;
+    var sensitivity = Number(elements.scannerSensitivity.value);
+    elements.scannerStartButton.disabled = true;
+    apiRequest("/api/scanner/start", "POST", {
+      band: band,
+      sensitivity_db: sensitivity
+    }).then(function (data) {
+      applyServerState(data);
+      showMessage("Varredura iniciada. Aguarde alguns segundos.", false);
+    }).catch(function (error) {
+      showMessage(error.message, true);
+    }).finally(function () {
+      elements.scannerStartButton.disabled = false;
+    });
+  }
+
+  function scannerMove(direction) {
+    apiRequest("/api/scanner/next", "POST", { direction: direction })
+      .then(applyServerState)
+      .catch(function (error) {
+        showMessage(error.message, true);
+      });
   }
 
   function setTheme(theme) {
@@ -511,7 +630,7 @@
       var target = state.running ? 48 : 8;
       var variation = state.running ? (Math.random() - 0.46) * 18 : (Math.random() - 0.5) * 4;
       state.signal = clamp(state.signal + (target - state.signal) * 0.18 + variation, 0, 100);
-      updateMeter(state.signal);
+      updateMeter(state.signal, state.signalDbfs, state.signalSource);
     }, 650);
   }
 
@@ -561,6 +680,20 @@
     elements.frequencyForm.addEventListener("submit", submitFrequency);
     elements.frequencyInput.addEventListener("input", updateFrequencyEntry);
 
+    elements.scannerButton.addEventListener("click", openScannerDialog);
+    elements.scannerCloseButton.addEventListener("click", closeScannerDialog);
+    elements.scannerStartButton.addEventListener("click", startScanner);
+    elements.scannerPreviousButton.addEventListener("click", function () {
+      scannerMove(-1);
+    });
+    elements.scannerNextButton.addEventListener("click", function () {
+      scannerMove(1);
+    });
+    elements.scannerSensitivity.addEventListener("input", function () {
+      elements.scannerSensitivityDisplay.textContent =
+        elements.scannerSensitivity.value + " dB";
+    });
+
     elements.frequencyDialog.addEventListener("click", function (event) {
       var keyButton = event.target.closest("button[data-key]");
       if (keyButton) {
@@ -571,6 +704,8 @@
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && !elements.frequencyDialog.hidden) {
         closeFrequencyDialog();
+      } else if (event.key === "Escape" && !elements.scannerDialog.hidden) {
+        closeScannerDialog();
       }
     });
   }
@@ -580,7 +715,9 @@
     initializeTheme();
     bindEvents();
     render();
-    startSignalSimulation();
+    if (!state.apiOnline) {
+      startSignalSimulation();
+    }
     syncStatus();
 
     statusTimer = window.setInterval(function () {

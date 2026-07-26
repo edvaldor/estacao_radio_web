@@ -1,0 +1,35 @@
+{
+  "description": "Catálogo local editável. Use frequência em MHz.",
+  "stations": [
+    {
+      "frequency_mhz": 89.9,
+      "name": "Rádio Música FM",
+      "city": "Cianorte - PR"
+    },
+    {
+      "frequency_mhz": 91.9,
+      "name": "Rádio Capital 91",
+      "city": "Cianorte - PR"
+    },
+    {
+      "frequency_mhz": 95.9,
+      "name": "Cia FM",
+      "city": "Cianorte - PR"
+    },
+    {
+      "frequency_mhz": 96.9,
+      "name": "Massa FM Cianorte",
+      "city": "Cianorte - PR"
+    },
+    {
+      "frequency_mhz": 102.9,
+      "name": "Aciolli FM",
+      "city": "Cianorte - PR"
+    },
+    {
+      "frequency_mhz": 105.9,
+      "name": "Rádio Comunitária",
+      "city": "Cianorte - PR"
+    }
+  ]
+}

@@ -1,14 +1,6 @@
-"""Controle do receptor usado pela interface web.
+"""Controle do RTL-SDR, áudio, medição em tempo real e scanner."""
 
-O projeto funciona em dois modos:
-
-* ``simulation``: permite testar toda a interface sem um dongle.
-* ``rtl_fm``: usa os programas rtl_fm e aplay para receber AM/NFM/WFM.
-
-USB e LSB aparecem na interface para evolução futura, mas o rtl_fm não
-demodula esses dois modos.
-"""
-
+import math
 import os
 import random
 import shutil
@@ -16,10 +8,14 @@ import subprocess
 import tempfile
 import threading
 import time
+from array import array
 from dataclasses import asdict, dataclass, replace
 
+from bands import BAND_PLANS, StationCatalog, infer_band, public_band_plans
+from scanner import ScanCancelled, ScanError, SpectrumScanner, simulated_candidates
 
-ALLOWED_MODES = {"AM", "NFM", "WFM", "USB", "LSB"}
+
+ALLOWED_MODES = {"AM", "NFM", "WFM"}
 MIN_FREQUENCY_MHZ = 24.0
 MAX_FREQUENCY_MHZ = 1766.0
 
@@ -34,11 +30,11 @@ class ValidationError(RadioError):
 
 @dataclass
 class RadioConfig:
-    frequency_mhz: float = 27.185
-    band: str = "cb"
-    channel: str = "PX · Canal 19"
-    mode: str = "AM"
-    step_khz: float = 5.0
+    frequency_mhz: float = 91.9
+    band: str = "fm"
+    channel: str = "Rádio Capital 91"
+    mode: str = "WFM"
+    step_khz: float = 100.0
     volume: int = 65
 
 
@@ -57,12 +53,16 @@ class BaseDriver:
     def is_alive(self):
         return False
 
+    def signal_metrics(self):
+        return {"percent": 0.0, "dbfs": -90.0, "source": "unavailable"}
+
 
 class SimulationDriver(BaseDriver):
     name = "simulation"
 
     def __init__(self):
         self.running = False
+        self.signal = 12.0
 
     def start(self, config):
         self.running = True
@@ -72,6 +72,17 @@ class SimulationDriver(BaseDriver):
 
     def is_alive(self):
         return self.running
+
+    def signal_metrics(self):
+        target = 55.0 if self.running else 8.0
+        self.signal += (target - self.signal) * 0.22
+        self.signal += random.uniform(-4.0, 4.5) if self.running else random.uniform(-1.0, 1.0)
+        self.signal = max(0.0, min(100.0, self.signal))
+        return {
+            "percent": round(self.signal, 1),
+            "dbfs": round(-78.0 + self.signal * 0.68, 1),
+            "source": "simulation",
+        }
 
 
 class UnavailableDriver(BaseDriver):
@@ -85,6 +96,8 @@ class UnavailableDriver(BaseDriver):
 
 
 class RTLFMDriver(BaseDriver):
+    """Executa rtl_fm e mede o PCM antes de enviá-lo ao ALSA."""
+
     name = "rtl_fm"
 
     def __init__(self, rtl_fm_path, aplay_path):
@@ -94,17 +107,17 @@ class RTLFMDriver(BaseDriver):
         self.audio_process = None
         self.rtl_log = None
         self.audio_log = None
-
-    @staticmethod
-    def command_available():
-        return bool(shutil.which("rtl_fm") and shutil.which("aplay"))
+        self.audio_thread = None
+        self.audio_stop = threading.Event()
+        self.metrics_lock = threading.Lock()
+        self.signal_percent = 0.0
+        self.signal_dbfs = -90.0
 
     @staticmethod
     def probe_device():
         rtl_test_path = shutil.which("rtl_test")
         if not rtl_test_path:
             return True
-
         try:
             result = subprocess.run(
                 [rtl_test_path, "-t"],
@@ -125,29 +138,19 @@ class RTLFMDriver(BaseDriver):
             return False
 
     def _radio_command(self, config):
-        mode = config.mode.upper()
-        if mode == "AM":
-            rtl_mode = "am"
-            sample_rate = "120000"
-            extra = ["-E", "dc"]
-        elif mode == "NFM":
-            rtl_mode = "fm"
-            sample_rate = "240000"
-            extra = ["-E", "dc"]
-        elif mode == "WFM":
-            rtl_mode = "wbfm"
-            sample_rate = "170000"
-            extra = ["-E", "deemp"]
+        if config.mode == "AM":
+            rtl_mode, sample_rate, extra = "am", "120000", ["-E", "dc"]
+        elif config.mode == "NFM":
+            rtl_mode, sample_rate, extra = "fm", "240000", ["-E", "dc"]
+        elif config.mode == "WFM":
+            rtl_mode, sample_rate, extra = "wbfm", "170000", ["-E", "deemp"]
         else:
-            raise RadioError(
-                "O rtl_fm recebe AM, NFM e WFM. USB/LSB serão adicionados em uma próxima etapa."
-            )
+            raise RadioError("O rtl_fm recebe AM, NFM e WFM.")
 
-        frequency_hz = int(round(config.frequency_mhz * 1_000_000))
         return [
             self.rtl_fm_path,
             "-f",
-            str(frequency_hz),
+            str(int(round(config.frequency_mhz * 1_000_000))),
             "-M",
             rtl_mode,
             "-s",
@@ -157,7 +160,7 @@ class RTLFMDriver(BaseDriver):
         ] + extra + ["-"]
 
     def _audio_command(self):
-        return [
+        command = [
             self.aplay_path,
             "-q",
             "-r",
@@ -167,6 +170,10 @@ class RTLFMDriver(BaseDriver):
             "-c",
             "1",
         ]
+        device = os.environ.get("RADIO_AUDIO_DEVICE", "").strip()
+        if device:
+            command.extend(["-D", device])
+        return command
 
     @staticmethod
     def _read_log(log_file):
@@ -179,10 +186,51 @@ class RTLFMDriver(BaseDriver):
         except (OSError, ValueError):
             return ""
 
+    def _measure(self, chunk):
+        samples = array("h")
+        usable = len(chunk) - (len(chunk) % 2)
+        if not usable:
+            return
+        samples.frombytes(chunk[:usable])
+        if not samples:
+            return
+        mean_square = sum(float(sample) * sample for sample in samples) / len(samples)
+        rms = math.sqrt(mean_square)
+        dbfs = 20.0 * math.log10(max(rms, 1.0) / 32768.0)
+        # Escala relativa: -72 dBFS = 0%; -12 dBFS = 100%.
+        percent = max(0.0, min(100.0, (dbfs + 72.0) * (100.0 / 60.0)))
+        with self.metrics_lock:
+            self.signal_dbfs += (dbfs - self.signal_dbfs) * 0.28
+            self.signal_percent += (percent - self.signal_percent) * 0.28
+
+    def _pump_audio(self):
+        rtl_stdout = self.rtl_process.stdout if self.rtl_process else None
+        audio_stdin = self.audio_process.stdin if self.audio_process else None
+        if not rtl_stdout or not audio_stdin:
+            return
+        try:
+            while not self.audio_stop.is_set():
+                chunk = rtl_stdout.read(8192)
+                if not chunk:
+                    break
+                self._measure(chunk)
+                audio_stdin.write(chunk)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        finally:
+            try:
+                audio_stdin.close()
+            except (OSError, ValueError):
+                pass
+
     def start(self, config):
         self.stop()
         self.rtl_log = tempfile.TemporaryFile()
         self.audio_log = tempfile.TemporaryFile()
+        self.audio_stop.clear()
+        with self.metrics_lock:
+            self.signal_percent = 0.0
+            self.signal_dbfs = -90.0
 
         try:
             self.rtl_process = subprocess.Popen(
@@ -193,21 +241,27 @@ class RTLFMDriver(BaseDriver):
             )
             self.audio_process = subprocess.Popen(
                 self._audio_command(),
-                stdin=self.rtl_process.stdout,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=self.audio_log,
                 start_new_session=True,
             )
-            self.rtl_process.stdout.close()
+            self.audio_thread = threading.Thread(
+                target=self._pump_audio,
+                name="radio-audio-meter",
+                daemon=True,
+            )
+            self.audio_thread.start()
             time.sleep(0.45)
 
             if self.rtl_process.poll() is not None or self.audio_process.poll() is not None:
-                rtl_error = self._read_log(self.rtl_log)
-                audio_error = self._read_log(self.audio_log)
-                details = rtl_error or audio_error or "O processo do receptor terminou inesperadamente."
+                details = (
+                    self._read_log(self.rtl_log)
+                    or self._read_log(self.audio_log)
+                    or "O processo do receptor terminou inesperadamente."
+                )
                 self.stop()
                 raise RadioError("Não foi possível iniciar o rádio: " + details[-280:])
-
             self.set_volume(config.volume)
         except OSError as error:
             self.stop()
@@ -217,23 +271,29 @@ class RTLFMDriver(BaseDriver):
         amixer = shutil.which("amixer")
         if not amixer:
             return
-
         preferred = os.environ.get("RADIO_AUDIO_MIXER", "").strip()
         mixers = [preferred] if preferred else []
         mixers.extend(["PCM", "Master", "Headphone"])
-
+        card = os.environ.get("RADIO_AUDIO_CARD", "").strip()
         attempted = set()
         for mixer in mixers:
             if not mixer or mixer in attempted:
                 continue
             attempted.add(mixer)
-            result = subprocess.run(
-                [amixer, "sset", mixer, "{}%".format(int(volume))],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=3,
-                check=False,
-            )
+            command = [amixer]
+            if card:
+                command.extend(["-c", card])
+            command.extend(["sset", mixer, "{}%".format(int(volume)), "unmute"])
+            try:
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=3,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                continue
             if result.returncode == 0:
                 return
 
@@ -249,11 +309,14 @@ class RTLFMDriver(BaseDriver):
             process.wait(timeout=1.5)
 
     def stop(self):
-        self._terminate(self.audio_process)
+        self.audio_stop.set()
         self._terminate(self.rtl_process)
+        if self.audio_thread and self.audio_thread.is_alive():
+            self.audio_thread.join(timeout=1.0)
+        self._terminate(self.audio_process)
+        self.audio_thread = None
         self.audio_process = None
         self.rtl_process = None
-
         for log_file in (self.rtl_log, self.audio_log):
             if log_file:
                 try:
@@ -271,44 +334,67 @@ class RTLFMDriver(BaseDriver):
             and self.audio_process.poll() is None
         )
 
+    def signal_metrics(self):
+        with self.metrics_lock:
+            return {
+                "percent": round(self.signal_percent, 1),
+                "dbfs": round(self.signal_dbfs, 1),
+                "source": "audio_rms",
+            }
+
 
 def select_driver(preference):
     preference = (preference or "auto").strip().lower()
-
     if preference == "simulation":
         return SimulationDriver()
-
     if preference not in {"auto", "rtl_fm"}:
         return UnavailableDriver(
-            "Configuração RADIO_DRIVER inválida. Use auto, simulation ou rtl_fm."
+            "RADIO_DRIVER inválido. Use auto, simulation ou rtl_fm."
         )
-
     rtl_fm_path = shutil.which("rtl_fm")
     aplay_path = shutil.which("aplay")
     commands_ready = bool(rtl_fm_path and aplay_path)
     device_ready = commands_ready and RTLFMDriver.probe_device()
-
     if device_ready:
         return RTLFMDriver(rtl_fm_path, aplay_path)
-
     if preference == "rtl_fm":
-        if not commands_ready:
-            reason = "Instale os pacotes rtl-sdr e alsa-utils antes de iniciar o rádio."
-        else:
-            reason = "Nenhum dongle RTL-SDR foi encontrado. Confira a porta USB e reinicie."
+        reason = (
+            "Instale os pacotes rtl-sdr e alsa-utils."
+            if not commands_ready
+            else "Nenhum dongle RTL-SDR foi encontrado."
+        )
         return UnavailableDriver(reason)
-
     return SimulationDriver()
 
 
 class RadioController:
-    def __init__(self, driver_preference="auto"):
+    def __init__(self, driver_preference="auto", station_catalog=None):
         self.lock = threading.RLock()
+        self.catalog = station_catalog or StationCatalog()
         self.config = RadioConfig()
         self.driver = select_driver(driver_preference)
         self.running = False
-        self.signal_percent = 8.0
         self.last_error = None
+        self.scanner = SpectrumScanner()
+        self.scan_generation = 0
+        self.scan_thread = None
+        self.scan_state = self._empty_scan_state()
+        self._refresh_channel()
+
+    @staticmethod
+    def _empty_scan_state():
+        return {
+            "active": False,
+            "phase": "idle",
+            "band": None,
+            "sensitivity_db": 8.0,
+            "progress": 0,
+            "message": "Scanner pronto.",
+            "candidates": [],
+            "current_index": -1,
+            "noise_floor_db": None,
+            "threshold_db": None,
+        }
 
     @staticmethod
     def _number(payload, key, current):
@@ -319,9 +405,22 @@ class RadioController:
         except (TypeError, ValueError):
             raise ValidationError("O campo {} deve ser numérico.".format(key))
 
+    def _refresh_channel(self):
+        band, plan = infer_band(self.config.frequency_mhz)
+        if band == "fm":
+            station = self.catalog.lookup(self.config.frequency_mhz)
+            self.config.channel = (
+                station["name"]
+                if station
+                else "FM {:.1f} MHz".format(self.config.frequency_mhz)
+            )
+        elif plan:
+            self.config.channel = plan["channel"]
+        else:
+            self.config.channel = "Sintonia manual"
+
     def _validated_config(self, payload):
         config = replace(self.config)
-
         config.frequency_mhz = self._number(payload, "frequency_mhz", config.frequency_mhz)
         if not MIN_FREQUENCY_MHZ <= config.frequency_mhz <= MAX_FREQUENCY_MHZ:
             raise ValidationError(
@@ -329,18 +428,27 @@ class RadioController:
                     MIN_FREQUENCY_MHZ, MAX_FREQUENCY_MHZ
                 )
             )
-        config.frequency_mhz = round(config.frequency_mhz, 3)
+        config.frequency_mhz = round(config.frequency_mhz, 6)
+        auto_select = bool(payload.get("auto_select", False))
+        if auto_select:
+            band, plan = infer_band(config.frequency_mhz)
+            config.band = band
+            if plan:
+                config.mode = plan["mode"]
+                config.step_khz = plan["step_khz"]
+        else:
+            if "band" in payload:
+                band = str(payload["band"]).strip()
+                config.band = band if band in BAND_PLANS or band == "manual" else "manual"
+            if "mode" in payload:
+                mode = str(payload["mode"]).upper().strip()
+                if mode not in ALLOWED_MODES:
+                    raise ValidationError("Modo de recepção inválido.")
+                config.mode = mode
+            config.step_khz = self._number(payload, "step_khz", config.step_khz)
 
-        if "mode" in payload:
-            mode = str(payload["mode"]).upper().strip()
-            if mode not in ALLOWED_MODES:
-                raise ValidationError("Modo de recepção inválido.")
-            config.mode = mode
-
-        config.step_khz = self._number(payload, "step_khz", config.step_khz)
         if not 0.1 <= config.step_khz <= 1000:
             raise ValidationError("O passo deve ficar entre 0,1 e 1000 kHz.")
-
         if "volume" in payload:
             try:
                 config.volume = int(payload["volume"])
@@ -348,12 +456,6 @@ class RadioController:
                 raise ValidationError("O volume deve ser um número inteiro.")
             if not 0 <= config.volume <= 100:
                 raise ValidationError("O volume deve ficar entre 0 e 100%.")
-
-        if "band" in payload:
-            config.band = str(payload["band"]).strip()[:30] or "manual"
-        if "channel" in payload:
-            config.channel = str(payload["channel"]).strip()[:80] or "Sintonia manual"
-
         return config
 
     def configure(self, payload):
@@ -365,11 +467,11 @@ class RadioController:
             )
             volume_changed = new_config.volume != self.config.volume
             self.config = new_config
-
+            self._refresh_channel()
             if volume_changed:
                 self.driver.set_volume(self.config.volume)
-
             if self.running and receiver_changed:
+                self._deactivate_scanner()
                 try:
                     self.driver.start(self.config)
                     self.last_error = None
@@ -377,14 +479,26 @@ class RadioController:
                     self.running = False
                     self.last_error = str(error)
                     raise
-
             return self.status()
+
+    def apply_band(self, band):
+        if band not in BAND_PLANS:
+            raise ValidationError("Banda inválida.")
+        plan = BAND_PLANS[band]
+        return self.configure(
+            {
+                "frequency_mhz": plan["preset_mhz"],
+                "band": band,
+                "mode": plan["mode"],
+                "step_khz": plan["step_khz"],
+            }
+        )
 
     def start(self):
         with self.lock:
+            self._deactivate_scanner()
             if self.running and self.driver.is_alive():
                 return self.status()
-
             try:
                 self.driver.start(self.config)
                 self.running = True
@@ -397,40 +511,190 @@ class RadioController:
 
     def stop(self):
         with self.lock:
+            self._deactivate_scanner()
             self.driver.stop()
             self.running = False
             return self.status()
 
-    def _update_signal(self):
-        if self.running:
-            target = 55.0 if self.driver.name == "rtl_fm" else 45.0
-            self.signal_percent += (target - self.signal_percent) * 0.22
-            self.signal_percent += random.uniform(-6.0, 7.0)
+    def _deactivate_scanner(self):
+        if self.scan_state["active"]:
+            self.scan_generation += 1
+            self.scanner.cancel()
+            self.scan_state["active"] = False
+            self.scan_state["phase"] = "idle"
+            self.scan_state["message"] = "Scanner parado."
+
+    def start_scan(self, payload):
+        band = str((payload or {}).get("band", self.config.band)).strip()
+        if band not in BAND_PLANS:
+            raise ValidationError("Escolha uma banda antes de iniciar o scanner.")
+        try:
+            sensitivity = float((payload or {}).get("sensitivity_db", 8.0))
+        except (TypeError, ValueError):
+            raise ValidationError("A sensibilidade do scanner deve ser numérica.")
+        if not 3.0 <= sensitivity <= 25.0:
+            raise ValidationError("Use sensibilidade entre 3 e 25 dB.")
+
+        with self.lock:
+            self.scan_generation += 1
+            generation = self.scan_generation
+            self.scanner.cancel()
+            self.driver.stop()
+            self.running = False
+            self.scan_state = self._empty_scan_state()
+            self.scan_state.update(
+                {
+                    "active": True,
+                    "phase": "scanning",
+                    "band": band,
+                    "sensitivity_db": sensitivity,
+                    "progress": 12,
+                    "message": "Medindo a banda {}…".format(BAND_PLANS[band]["label"]),
+                }
+            )
+            self.scan_thread = threading.Thread(
+                target=self._scan_worker,
+                args=(generation, band, sensitivity),
+                name="radio-spectrum-scan",
+                daemon=True,
+            )
+            self.scan_thread.start()
+            return self.status()
+
+    def _scan_worker(self, generation, band, sensitivity):
+        plan = BAND_PLANS[band]
+        try:
+            if self.driver.name == "simulation":
+                time.sleep(0.35)
+                result = simulated_candidates(plan, self.catalog)
+            else:
+                result = self.scanner.scan(plan, sensitivity_db=sensitivity)
+            with self.lock:
+                if generation != self.scan_generation:
+                    return
+                candidates = [
+                    self._describe_candidate(item, band)
+                    for item in result["candidates"]
+                ]
+                self.scan_state.update(
+                    {
+                        "progress": 100,
+                        "candidates": candidates,
+                        "noise_floor_db": result["noise_floor_db"],
+                        "threshold_db": result["threshold_db"],
+                    }
+                )
+                if not candidates:
+                    self.scan_state.update(
+                        {
+                            "phase": "empty",
+                            "message": "Nenhum pico superou o limite. Reduza a sensibilidade e tente de novo.",
+                        }
+                    )
+                    return
+                self.scan_state["phase"] = "listening"
+                self.scan_state["message"] = "{} sinais encontrados.".format(len(candidates))
+                self._tune_scan_candidate(0)
+        except ScanCancelled:
+            return
+        except (ScanError, RadioError) as error:
+            with self.lock:
+                if generation != self.scan_generation:
+                    return
+                self.last_error = str(error)
+                self.scan_state.update(
+                    {
+                        "phase": "error",
+                        "progress": 100,
+                        "message": str(error),
+                    }
+                )
+
+    def _describe_candidate(self, item, band):
+        candidate = dict(item)
+        frequency = candidate["frequency_mhz"]
+        if band == "fm":
+            station = self.catalog.lookup(frequency)
+            candidate["name"] = station["name"] if station else "FM {:.1f}".format(frequency)
         else:
-            self.signal_percent += (7.0 - self.signal_percent) * 0.3
-            self.signal_percent += random.uniform(-1.5, 1.5)
-        self.signal_percent = max(0.0, min(100.0, self.signal_percent))
+            candidate["name"] = "{} {:.3f}".format(BAND_PLANS[band]["label"], frequency)
+        return candidate
+
+    def _tune_scan_candidate(self, index):
+        candidates = self.scan_state["candidates"]
+        if not candidates:
+            raise ValidationError("O scanner ainda não encontrou sinais.")
+        index %= len(candidates)
+        candidate = candidates[index]
+        band = self.scan_state["band"]
+        plan = BAND_PLANS[band]
+        self.config = replace(
+            self.config,
+            frequency_mhz=candidate["frequency_mhz"],
+            band=band,
+            mode=plan["mode"],
+            step_khz=plan["step_khz"],
+        )
+        self._refresh_channel()
+        self.driver.start(self.config)
+        self.running = True
+        self.last_error = None
+        self.scan_state["current_index"] = index
+        self.scan_state["message"] = "Ouvindo {} de {}.".format(index + 1, len(candidates))
+
+    def scan_next(self, direction=1):
+        with self.lock:
+            if self.scan_state["phase"] != "listening":
+                raise ValidationError("Aguarde a varredura terminar.")
+            try:
+                offset = 1 if int(direction) >= 0 else -1
+            except (TypeError, ValueError):
+                offset = 1
+            self._tune_scan_candidate(self.scan_state["current_index"] + offset)
+            return self.status()
+
+    def stop_scan(self):
+        with self.lock:
+            self._deactivate_scanner()
+            if not self.running:
+                try:
+                    self.driver.start(self.config)
+                    self.running = True
+                except RadioError:
+                    self.running = False
+            return self.status()
 
     def status(self):
         with self.lock:
             if self.running and not self.driver.is_alive():
                 self.running = False
                 self.last_error = "O processo de recepção foi encerrado."
-
-            self._update_signal()
+            metrics = self.driver.signal_metrics()
             result = asdict(self.config)
             result.update(
                 {
                     "running": self.running,
                     "driver": self.driver.name,
-                    "signal_percent": round(self.signal_percent, 1),
-                    "signal_source": "estimated",
+                    "signal_percent": metrics["percent"],
+                    "signal_dbfs": metrics["dbfs"],
+                    "signal_source": metrics["source"],
                     "last_error": self.last_error,
+                    "bands": public_band_plans(),
+                    "scanner": {
+                        key: (
+                            [dict(item) for item in value]
+                            if key == "candidates"
+                            else value
+                        )
+                        for key, value in self.scan_state.items()
+                    },
                 }
             )
             return result
 
     def close(self):
         with self.lock:
+            self.scan_generation += 1
+            self.scanner.cancel()
             self.driver.stop()
             self.running = False

@@ -35,7 +35,7 @@ def create_app(controller=None):
 
     @app.get("/api/health")
     def health():
-        return jsonify({"ok": True, "service": "estacao-radio-web"})
+        return jsonify({"ok": True, "service": "estacao-radio-web", "version": "2.0.0"})
 
     @app.get("/api/status")
     def status():
@@ -48,6 +48,10 @@ def create_app(controller=None):
             raise ValidationError("Envie a configuração no formato JSON.")
         return jsonify(radio.configure(payload))
 
+    @app.post("/api/band/<band>/select")
+    def select_band(band):
+        return jsonify(radio.apply_band(band))
+
     @app.post("/api/receiver/start")
     def start_receiver():
         return jsonify(radio.start())
@@ -55,6 +59,19 @@ def create_app(controller=None):
     @app.post("/api/receiver/stop")
     def stop_receiver():
         return jsonify(radio.stop())
+
+    @app.post("/api/scanner/start")
+    def start_scanner():
+        return jsonify(radio.start_scan(request.get_json(silent=True) or {}))
+
+    @app.post("/api/scanner/next")
+    def next_scanner_result():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(radio.scan_next(payload.get("direction", 1)))
+
+    @app.post("/api/scanner/stop")
+    def stop_scanner():
+        return jsonify(radio.stop_scan())
 
     @app.errorhandler(ValidationError)
     def validation_error(error):
