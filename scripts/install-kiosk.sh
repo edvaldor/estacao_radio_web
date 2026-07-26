@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 KIOSK_SERVICE="estacao-radio-kiosk"
 KIOSK_SCRIPT="/usr/local/bin/estacao-radio-kiosk"
+XORG_CONFIG="/etc/X11/xorg.conf.d/99-estacao-radio-fbdev.conf"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Use: sudo ./scripts/install-kiosk.sh"
@@ -35,12 +36,38 @@ fi
 
 apt-get install -y \
   xserver-xorg \
+  xserver-xorg-video-fbdev \
   x11-xserver-utils \
   xinit \
   openbox \
   dbus-x11 \
   unclutter \
   "${BROWSER_PACKAGE}"
+
+if [[ -e /dev/fb1 ]]; then
+  FRAMEBUFFER_DEVICE="/dev/fb1"
+else
+  FRAMEBUFFER_DEVICE="/dev/fb0"
+fi
+
+mkdir -p /etc/X11/xorg.conf.d
+cat >"${XORG_CONFIG}" <<EOF
+Section "ServerLayout"
+    Identifier "EstacaoRadioLayout"
+    Screen 0 "EstacaoRadioScreen"
+EndSection
+
+Section "Device"
+    Identifier "WaveshareFramebuffer"
+    Driver "fbdev"
+    Option "fbdev" "${FRAMEBUFFER_DEVICE}"
+EndSection
+
+Section "Screen"
+    Identifier "EstacaoRadioScreen"
+    Device "WaveshareFramebuffer"
+EndSection
+EOF
 
 cat >"${KIOSK_SCRIPT}" <<EOF
 #!/usr/bin/env bash
@@ -75,9 +102,9 @@ chmod +x "${KIOSK_SCRIPT}"
 cat >"/etc/systemd/system/${KIOSK_SERVICE}.service" <<EOF
 [Unit]
 Description=Tela da Estação Rádio Web
-After=systemd-user-sessions.service estacao-radio-web.service
+After=systemd-user-sessions.service estacao-radio-web.service network.target
 Requires=estacao-radio-web.service
-Conflicts=getty@tty1.service
+Conflicts=getty@tty1.service display-manager.service
 
 [Service]
 User=${TARGET_USER}
@@ -87,16 +114,22 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 Environment=DISPLAY=:0
+Environment=FRAMEBUFFER=${FRAMEBUFFER_DEVICE}
 ExecStart=/usr/bin/startx ${KIOSK_SCRIPT} -- :0 vt1 -keeptty -nocursor
 Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl set-default graphical.target
+
+# O quiosque inicia o próprio Xorg. Desliga o Raspberry Pi Desktop/LightDM
+# para evitar que dois servidores gráficos disputem a tela :0.
+systemctl disable --now display-manager.service 2>/dev/null || true
+systemctl disable --now lightdm.service 2>/dev/null || true
+systemctl set-default multi-user.target
 systemctl enable --now "${KIOSK_SERVICE}"
 
 echo

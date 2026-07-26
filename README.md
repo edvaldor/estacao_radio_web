@@ -1,4 +1,4 @@
-# Estação Rádio Web 2.0
+# Estação Rádio Web 2.0.2
 
 Receptor portátil para Raspberry Pi, RTL-SDR e tela touch de 3,2″. A versão 2
 foi desenhada para 480 × 320 e continua utilizável em 320 × 240.
@@ -63,6 +63,14 @@ cd ~/estacao_radio_web
 sudo bash scripts/install-kiosk.sh
 sudo reboot
 ```
+
+O instalador desativa o Raspberry Pi Desktop/LightDM porque o quiosque inicia
+seu próprio servidor gráfico. Isso evita a tela parada em “Welcome to the
+Raspberry Pi Desktop”.
+
+Em telas Waveshare conectadas por SPI, o instalador seleciona automaticamente
+`/dev/fb1` e instala o driver Xorg `fbdev`. Sem essa configuração, o Xorg tenta
+usar `/dev/dri/card0` e termina com a mensagem `no screens found`.
 
 ## Como usar o scanner
 
