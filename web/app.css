@@ -1,0 +1,653 @@
+:root {
+  color-scheme: dark;
+  --bg: #071018;
+  --panel: #101c27;
+  --panel-strong: #162634;
+  --text: #edf7ff;
+  --muted: #9db0bf;
+  --line: #304454;
+  --primary: #2dd47d;
+  --primary-strong: #20b86a;
+  --primary-text: #03170d;
+  --danger: #ff5d66;
+  --warning: #ffc857;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --radius: 12px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e8eef3;
+  --panel: #ffffff;
+  --panel-strong: #edf3f7;
+  --text: #10202c;
+  --muted: #526775;
+  --line: #bdcad3;
+  --primary: #087d45;
+  --primary-strong: #056638;
+  --primary-text: #ffffff;
+  --danger: #c62833;
+  --warning: #996400;
+  --shadow: rgba(22, 40, 54, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-width: 300px;
+  min-height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button,
+select,
+input[type="range"] {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--warning);
+  outline-offset: 2px;
+}
+
+.radio-app {
+  width: 100vw;
+  height: 100vh;
+  min-height: 300px;
+  padding: 8px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.radio-header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(150px, 0.85fr);
+  gap: 7px;
+}
+
+.frequency-card {
+  min-width: 0;
+  min-height: 78px;
+  padding: 6px 10px;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 4px 16px var(--shadow);
+  cursor: pointer;
+}
+
+.frequency-card:active {
+  background: var(--panel-strong);
+  transform: translateY(1px);
+}
+
+.frequency-hint {
+  display: block;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.frequency-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.frequency-row strong {
+  font-size: clamp(29px, 7.4vw, 42px);
+  line-height: 0.98;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.frequency-row > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.frequency-meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.frequency-meta span:last-child {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  color: var(--text);
+}
+
+.header-controls {
+  min-width: 0;
+  padding: 5px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.header-controls label,
+.step-control {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.header-controls select,
+.step-control select {
+  width: 100%;
+  min-width: 0;
+  height: 27px;
+  padding: 2px 24px 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.compact-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 4px;
+  align-items: end;
+}
+
+.icon-button,
+.close-button {
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-button {
+  width: 34px;
+  height: 27px;
+  border-radius: 7px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.meter-section {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.status-line {
+  padding: 3px 7px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.receiver-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--muted) 20%, transparent);
+}
+
+.status-dot.is-ready {
+  background: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.status-dot.is-error {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.step-control {
+  grid-template-columns: auto auto;
+  align-items: center;
+}
+
+.step-control select {
+  width: 78px;
+  height: 24px;
+}
+
+.signal-meter {
+  width: 100%;
+  height: 100%;
+  min-height: 112px;
+  display: block;
+  overflow: visible;
+}
+
+.meter-arc,
+.meter-red-arc {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.meter-arc {
+  stroke: var(--line);
+}
+
+.meter-red-arc {
+  stroke: var(--danger);
+}
+
+.meter-tick {
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+
+.meter-tick.is-major {
+  stroke: var(--text);
+  stroke-width: 2.2;
+}
+
+.meter-tick-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.needle {
+  transform-origin: 180px 131px;
+  transition: transform 160ms ease-out;
+}
+
+.needle line {
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.needle circle {
+  fill: var(--primary);
+  stroke: var(--panel);
+  stroke-width: 3;
+}
+
+.needle.is-hot line {
+  stroke: var(--danger);
+}
+
+.needle.is-hot circle {
+  fill: var(--danger);
+}
+
+.meter-label,
+.meter-dbm {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.meter-value {
+  fill: var(--text);
+  font-size: 23px;
+  font-weight: 750;
+}
+
+.radio-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 66px 100px 66px minmax(105px, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+
+.radio-controls button {
+  min-height: 48px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.tune-button {
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.tune-button > span {
+  font-size: 24px;
+  line-height: 0.8;
+}
+
+.tune-button small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.receiver-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 750;
+}
+
+.receiver-button[aria-pressed="true"] {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.receiver-symbol {
+  font-size: 17px;
+}
+
+.volume-control {
+  min-width: 0;
+  padding: 4px 8px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.volume-control > span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.volume-control output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.volume-control input {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.message {
+  position: fixed;
+  right: 8px;
+  bottom: 62px;
+  left: 8px;
+  z-index: 20;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-strong);
+  color: var(--text);
+  box-shadow: 0 6px 20px var(--shadow);
+  font-size: 12px;
+  text-align: center;
+}
+
+.message.is-error {
+  border-color: var(--danger);
+}
+
+.frequency-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  padding: 7px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(3px);
+  overflow: auto;
+}
+
+.frequency-dialog[hidden] {
+  display: none;
+}
+
+.keypad-panel {
+  width: min(100%, 470px);
+  min-height: min(306px, calc(100vh - 14px));
+  padding: 8px;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 8px 28px var(--shadow);
+}
+
+.keypad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.keypad-header > div {
+  display: grid;
+  gap: 1px;
+}
+
+.keypad-header > div > span {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.keypad-header strong {
+  font-size: 25px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.keypad-header small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.close-button {
+  width: 37px;
+  height: 37px;
+  border-radius: 9px;
+  font-size: 26px;
+  line-height: 1;
+}
+
+#frequencyInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.keypad-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.numeric-keypad {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(34px, 1fr));
+  gap: 5px;
+}
+
+.numeric-keypad button,
+.keypad-actions button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.numeric-keypad button {
+  min-height: 34px;
+  font-size: 18px;
+}
+
+.numeric-keypad button:active,
+.keypad-actions button:active {
+  transform: translateY(1px);
+}
+
+.numeric-keypad .delete-key {
+  color: var(--warning);
+}
+
+.keypad-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 6px;
+}
+
+.keypad-actions button {
+  min-height: 38px;
+  font-size: 13px;
+}
+
+.keypad-actions .secondary-action {
+  background: transparent;
+}
+
+.keypad-actions .primary-action {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+@media (max-width: 390px) and (orientation: portrait) {
+  body {
+    overflow: auto;
+  }
+
+  .radio-app {
+    min-height: 100vh;
+    height: auto;
+    grid-template-rows: auto minmax(175px, 1fr) auto;
+  }
+
+  .radio-header {
+    grid-template-columns: 1fr;
+  }
+
+  .header-controls {
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+  }
+
+  .radio-controls {
+    grid-template-columns: 1fr 1.4fr 1fr;
+  }
+
+  .volume-control {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-height: 310px) and (orientation: landscape) {
+  .radio-app {
+    padding: 5px;
+    gap: 4px;
+  }
+
+  .frequency-card {
+    min-height: 68px;
+  }
+
+  .radio-controls button {
+    min-height: 42px;
+  }
+
+  .numeric-keypad {
+    gap: 3px;
+  }
+
+  .keypad-panel {
+    min-height: calc(100vh - 10px);
+    padding: 5px;
+    gap: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

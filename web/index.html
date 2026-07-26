@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#071018">
+  <title>Estação Rádio Web</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <main class="radio-app" id="radioApp">
+    <header class="radio-header">
+      <button class="frequency-card" id="frequencyButton" type="button" aria-haspopup="dialog" aria-controls="frequencyDialog">
+        <span class="frequency-hint">TOQUE PARA SINTONIZAR</span>
+        <span class="frequency-row">
+          <strong id="frequencyDisplay">27.185</strong>
+          <span>MHz</span>
+        </span>
+        <span class="frequency-meta">
+          <span id="channelDisplay">PX · Canal 19</span>
+          <span id="modeDisplay">AM</span>
+        </span>
+      </button>
+
+      <div class="header-controls">
+        <label>
+          <span>Banda</span>
+          <select id="bandSelect">
+            <option value="fm">FM comercial</option>
+            <option value="air">Aeronáutica</option>
+            <option value="vhf">Radioamador VHF</option>
+            <option value="uhf">Radioamador UHF</option>
+            <option value="cb" selected>PX / CB 11 m</option>
+          </select>
+        </label>
+
+        <div class="compact-row">
+          <label>
+            <span>Modo</span>
+            <select id="modeSelect">
+              <option value="AM" selected>AM</option>
+              <option value="NFM">NFM</option>
+              <option value="WFM">WFM</option>
+              <option value="USB">USB</option>
+              <option value="LSB">LSB</option>
+            </select>
+          </label>
+
+          <button class="icon-button" id="themeButton" type="button" aria-label="Alternar modo noturno">
+            <span aria-hidden="true" id="themeIcon">☾</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <section class="meter-section" aria-label="Medidor de intensidade do sinal">
+      <div class="status-line">
+        <span class="receiver-status">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="driverDisplay">Verificando rádio…</span>
+        </span>
+
+        <label class="step-control">
+          <span>Passo</span>
+          <select id="stepSelect">
+            <option value="1">1 kHz</option>
+            <option value="5" selected>5 kHz</option>
+            <option value="10">10 kHz</option>
+            <option value="12.5">12,5 kHz</option>
+            <option value="25">25 kHz</option>
+            <option value="100">100 kHz</option>
+          </select>
+        </label>
+      </div>
+
+      <svg class="signal-meter" id="signalMeter" viewBox="0 0 360 150" role="img" aria-labelledby="meterTitle meterDescription">
+        <title id="meterTitle">Medidor de sinal</title>
+        <desc id="meterDescription">Escala analógica de S1 até S9 mais 60 decibéis.</desc>
+        <path class="meter-arc" d="M 48 116 A 142 142 0 0 1 312 116"></path>
+        <path class="meter-red-arc" d="M 278 62 A 142 142 0 0 1 312 116"></path>
+        <g id="meterTicks" aria-hidden="true"></g>
+        <g class="needle" id="meterNeedle" aria-hidden="true">
+          <line x1="180" y1="131" x2="180" y2="29"></line>
+          <circle cx="180" cy="131" r="8"></circle>
+        </g>
+        <text class="meter-label" x="180" y="79" text-anchor="middle">SINAL</text>
+        <text class="meter-value" id="signalDisplay" x="180" y="104" text-anchor="middle">S5.0</text>
+        <text class="meter-dbm" id="dbmDisplay" x="180" y="122" text-anchor="middle">−103 dBm</text>
+      </svg>
+    </section>
+
+    <footer class="radio-controls">
+      <button class="tune-button" id="tuneDownButton" type="button" aria-label="Diminuir frequência">
+        <span aria-hidden="true">−</span>
+        <small id="downStepLabel">5 kHz</small>
+      </button>
+
+      <button class="receiver-button" id="receiverButton" type="button" aria-pressed="false">
+        <span class="receiver-symbol" aria-hidden="true">◉</span>
+        <span id="receiverButtonLabel">Iniciar</span>
+      </button>
+
+      <button class="tune-button" id="tuneUpButton" type="button" aria-label="Aumentar frequência">
+        <span aria-hidden="true">+</span>
+        <small id="upStepLabel">5 kHz</small>
+      </button>
+
+      <label class="volume-control">
+        <span>
+          Volume
+          <output id="volumeDisplay">65%</output>
+        </span>
+        <input id="volumeInput" type="range" min="0" max="100" value="65">
+      </label>
+    </footer>
+
+    <div class="message" id="message" role="status" aria-live="polite" hidden></div>
+  </main>
+
+  <div class="frequency-dialog" id="frequencyDialog" role="dialog" aria-modal="true" aria-labelledby="frequencyDialogTitle" hidden>
+    <form class="keypad-panel" id="frequencyForm">
+      <div class="keypad-header">
+        <div>
+          <span id="frequencyDialogTitle">DIGITAR FREQUÊNCIA</span>
+          <strong><output id="frequencyInputDisplay">27.185</output> <small>MHz</small></strong>
+        </div>
+        <button class="close-button" id="frequencyCloseButton" type="button" aria-label="Fechar teclado">×</button>
+      </div>
+
+      <input id="frequencyInput" type="text" inputmode="decimal" autocomplete="off" maxlength="8" value="27.185" aria-label="Frequência em megahertz">
+      <p class="keypad-error" id="frequencyError" role="alert" hidden>Use um valor entre 24.000 e 1766.000 MHz.</p>
+
+      <div class="numeric-keypad" aria-label="Teclado numérico">
+        <button type="button" data-key="1">1</button>
+        <button type="button" data-key="2">2</button>
+        <button type="button" data-key="3">3</button>
+        <button type="button" data-key="4">4</button>
+        <button type="button" data-key="5">5</button>
+        <button type="button" data-key="6">6</button>
+        <button type="button" data-key="7">7</button>
+        <button type="button" data-key="8">8</button>
+        <button type="button" data-key="9">9</button>
+        <button type="button" data-key=".">.</button>
+        <button type="button" data-key="0">0</button>
+        <button class="delete-key" id="frequencyDeleteButton" type="button" aria-label="Apagar último número">⌫</button>
+      </div>
+
+      <div class="keypad-actions">
+        <button class="secondary-action" id="frequencyCancelButton" type="button">Cancelar</button>
+        <button class="primary-action" type="submit">Sintonizar</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
