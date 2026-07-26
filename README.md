@@ -1,4 +1,4 @@
-# Estação Rádio Web 2.0.2
+# Estação Rádio Web 2.0.3
 
 Receptor portátil para Raspberry Pi, RTL-SDR e tela touch de 3,2″. A versão 2
 foi desenhada para 480 × 320 e continua utilizável em 320 × 240.
@@ -53,8 +53,10 @@ sudo bash scripts/update.sh
 ```
 
 O atualizador executa `git pull`, reinstala dependências necessárias e reinicia
-o serviço. Se a pasta não tiver sido baixada com `git clone`, renomeie a pasta
-antiga e faça a instalação nova.
+o serviço. Ele chama o instalador através do `bash`, portanto continua
+funcionando mesmo quando um envio feito pela interface web do GitHub não
+preserva a permissão de execução. Se a pasta não tiver sido baixada com
+`git clone`, renomeie a pasta antiga e faça a instalação nova.
 
 ## Abrir automaticamente na tela de 3,2″
 

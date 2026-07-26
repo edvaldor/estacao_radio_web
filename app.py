@@ -35,7 +35,7 @@ def create_app(controller=None):
 
     @app.get("/api/health")
     def health():
-        return jsonify({"ok": True, "service": "estacao-radio-web", "version": "2.0.2"})
+        return jsonify({"ok": True, "service": "estacao-radio-web", "version": "2.0.3"})
 
     @app.get("/api/status")
     def status():
