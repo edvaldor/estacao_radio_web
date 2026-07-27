@@ -4,6 +4,7 @@ set -Eeuo pipefail
 KIOSK_SERVICE="estacao-radio-kiosk"
 KIOSK_SCRIPT="/usr/local/bin/estacao-radio-kiosk"
 XORG_CONFIG="/etc/X11/xorg.conf.d/99-estacao-radio-fbdev.conf"
+XWRAPPER_CONFIG="/etc/X11/Xwrapper.config"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Use: sudo bash scripts/install-kiosk.sh"
@@ -26,24 +27,38 @@ TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6)"
 export DEBIAN_FRONTEND=noninteractive
 if [[ "${SKIP_APT:-0}" != "1" ]]; then
   apt-get update
-  if apt-cache show chromium >/dev/null 2>&1; then
-    BROWSER_PACKAGE="chromium"
-  elif apt-cache show chromium-browser >/dev/null 2>&1; then
-    BROWSER_PACKAGE="chromium-browser"
-  else
-    echo "O navegador Chromium não foi encontrado nos repositórios deste sistema."
-    exit 1
-  fi
+fi
 
-  apt-get install -y \
-    xserver-xorg \
-    xserver-xorg-video-fbdev \
-    x11-xserver-utils \
-    xinit \
-    openbox \
-    dbus-x11 \
-    unclutter \
-    "${BROWSER_PACKAGE}"
+if apt-cache show chromium >/dev/null 2>&1; then
+  BROWSER_PACKAGE="chromium"
+elif apt-cache show chromium-browser >/dev/null 2>&1; then
+  BROWSER_PACKAGE="chromium-browser"
+else
+  echo "O navegador Chromium não foi encontrado nos repositórios deste sistema."
+  exit 1
+fi
+
+REQUIRED_PACKAGES=(
+  xserver-xorg
+  xserver-xorg-legacy
+  xserver-xorg-video-fbdev
+  x11-xserver-utils
+  xinit
+  openbox
+  dbus-x11
+  unclutter
+  "${BROWSER_PACKAGE}"
+)
+MISSING_PACKAGES=()
+for package in "${REQUIRED_PACKAGES[@]}"; do
+  if ! dpkg-query -W -f='${Status}' "${package}" 2>/dev/null \
+      | grep -q 'install ok installed'; then
+    MISSING_PACKAGES+=("${package}")
+  fi
+done
+if [[ "${#MISSING_PACKAGES[@]}" -gt 0 ]]; then
+  echo "Instalando componentes ausentes do quiosque..."
+  apt-get install -y "${MISSING_PACKAGES[@]}"
 fi
 
 if command -v chromium >/dev/null 2>&1; then
@@ -72,6 +87,12 @@ for group in video input render; do
 done
 
 mkdir -p /etc/X11/xorg.conf.d
+cat >"${XWRAPPER_CONFIG}" <<'EOF'
+# A tela SPI usa fbdev legado e precisa que o Xorg mantenha privilégios.
+allowed_users=console
+needs_root_rights=yes
+EOF
+
 cat >"${XORG_CONFIG}" <<EOF
 Section "ServerFlags"
     Option "AutoAddGPU" "false"
@@ -92,10 +113,6 @@ EndSection
 Section "Screen"
     Identifier "EstacaoRadioScreen"
     Device "WaveshareFramebuffer"
-    DefaultDepth 16
-    SubSection "Display"
-        Depth 16
-    EndSubSection
 EndSection
 EOF
 
@@ -170,7 +187,7 @@ StandardError=journal
 Environment=HOME=${TARGET_HOME}
 Environment=DISPLAY=:0
 Environment=FRAMEBUFFER=${FRAMEBUFFER_DEVICE}
-ExecStart=/usr/bin/xinit ${KIOSK_SCRIPT} -- /usr/bin/Xorg :0 vt1 -keeptty -nocursor -nolisten tcp
+ExecStart=/usr/bin/xinit ${KIOSK_SCRIPT} -- /usr/bin/Xorg :0 vt1 -keeptty -nocursor -nolisten tcp -config 99-estacao-radio-fbdev.conf
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15
@@ -210,6 +227,12 @@ echo
 echo "O serviço do quiosque não permaneceu ativo."
 echo "Diagnóstico mais recente:"
 journalctl -u "${KIOSK_SERVICE}.service" -n 30 --no-pager || true
+if [[ -f "${TARGET_HOME}/.local/share/xorg/Xorg.0.log" ]]; then
+  echo
+  echo "Erros do Xorg:"
+  grep -E '^\[[^]]+\] \((EE|WW)\)' \
+    "${TARGET_HOME}/.local/share/xorg/Xorg.0.log" | tail -n 30 || true
+fi
 echo
 echo "Depois de corrigir o erro, tente:"
 echo "  sudo systemctl restart ${KIOSK_SERVICE}"

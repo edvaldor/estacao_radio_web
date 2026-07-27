@@ -1,4 +1,4 @@
-# Estação Rádio Web 2.1.0
+# Estação Rádio Web 2.1.1
 
 Receptor portátil para Raspberry Pi, RTL-SDR e tela touch de 3,2″. A versão 2
 foi desenhada para 480 × 320 e continua utilizável em 320 × 240.
@@ -85,6 +85,10 @@ O instalador desativa o Raspberry Pi Desktop/LightDM e inicia `xinit`/Xorg
 diretamente no framebuffer da tela. O Chromium é aberto sem aceleração de GPU,
 o que funciona no Raspberry Pi 2 mesmo sem `/dev/dri/card0`. Isso evita a tela
 parada em “Welcome to the Raspberry Pi Desktop”.
+
+Na versão 2.1.1, o instalador também inclui `xserver-xorg-legacy`, configura o
+`Xorg.wrap` para conservar os privilégios necessários ao framebuffer SPI e
+deixa o próprio Xorg selecionar a profundidade de cor suportada pela tela.
 
 Em telas Waveshare conectadas por SPI, o instalador seleciona automaticamente
 `/dev/fb1` e instala o driver Xorg `fbdev`. Sem essa configuração, o Xorg tenta
