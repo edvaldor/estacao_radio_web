@@ -13,7 +13,7 @@ BAND_PLANS = {
         "label": "FM comercial",
         "start_mhz": 87.5,
         "end_mhz": 108.0,
-        "mode": "WFM",
+        "mode": "NFM",
         "step_khz": 100.0,
         "preset_mhz": 91.9,
         "channel": "FM comercial",

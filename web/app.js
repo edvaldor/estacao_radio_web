@@ -6,7 +6,7 @@
       label: "FM comercial",
       channel: "Rádio Capital 91",
       frequency: 91.900,
-      mode: "WFM",
+      mode: "NFM",
       step: 100
     },
     air: {
@@ -43,7 +43,7 @@
     frequency: 91.900,
     band: "fm",
     channel: "Rádio Capital 91",
-    mode: "WFM",
+    mode: "NFM",
     step: 100,
     volume: 65,
     running: false,
@@ -51,6 +51,7 @@
     driver: "simulation",
     signalDbfs: -90,
     signalSource: "simulation",
+    browserAudioPlaying: false,
     scanner: {
       active: false,
       phase: "idle",
@@ -73,6 +74,9 @@
     stepSelect: document.getElementById("stepSelect"),
     themeButton: document.getElementById("themeButton"),
     themeIcon: document.getElementById("themeIcon"),
+    browserAudioButton: document.getElementById("browserAudioButton"),
+    browserAudioIcon: document.getElementById("browserAudioIcon"),
+    browserAudio: document.getElementById("browserAudio"),
     driverDisplay: document.getElementById("driverDisplay"),
     statusDot: document.getElementById("statusDot"),
     meterTicks: document.getElementById("meterTicks"),
@@ -246,6 +250,20 @@
     elements.upStepLabel.textContent = formatStep(state.step);
     elements.receiverButton.setAttribute("aria-pressed", state.running ? "true" : "false");
     elements.receiverButtonLabel.textContent = state.running ? "Parar" : "Iniciar";
+    elements.browserAudioButton.setAttribute(
+      "aria-pressed",
+      state.browserAudioPlaying ? "true" : "false"
+    );
+    elements.browserAudioButton.setAttribute(
+      "aria-label",
+      state.browserAudioPlaying
+        ? "Parar áudio neste navegador"
+        : "Ouvir o rádio neste navegador"
+    );
+    elements.browserAudioIcon.textContent = state.browserAudioPlaying ? "■" : "▶";
+    elements.browserAudioButton.disabled =
+      !state.running || state.driver !== "rtl_fm";
+    elements.browserAudio.volume = clamp(state.volume / 100, 0, 1);
     elements.driverDisplay.textContent = driverLabel(state.driver);
     elements.statusDot.classList.toggle("is-ready", state.driver === "rtl_fm" || state.driver === "simulation");
     elements.statusDot.classList.toggle("is-error", state.driver === "unavailable");
@@ -460,6 +478,10 @@
     var endpoint = state.running ? "/api/receiver/stop" : "/api/receiver/start";
     var intendedRunning = !state.running;
 
+    if (state.running) {
+      stopBrowserAudio();
+    }
+
     if (!state.apiOnline) {
       state.running = intendedRunning;
       render();
@@ -475,6 +497,48 @@
       showMessage(error.message, true);
     }).finally(function () {
       elements.receiverButton.disabled = false;
+    });
+  }
+
+  function stopBrowserAudio(message) {
+    elements.browserAudio.pause();
+    elements.browserAudio.removeAttribute("src");
+    elements.browserAudio.load();
+    state.browserAudioPlaying = false;
+    render();
+    if (message) {
+      showMessage(message, false);
+    }
+  }
+
+  function toggleBrowserAudio() {
+    if (state.browserAudioPlaying) {
+      stopBrowserAudio("Áudio no navegador desligado.");
+      return;
+    }
+    if (!state.running) {
+      showMessage("Primeiro toque em Iniciar.", true);
+      return;
+    }
+    if (state.driver !== "rtl_fm") {
+      showMessage("Conecte o RTL-SDR para ouvir o áudio ao vivo.", true);
+      return;
+    }
+
+    elements.browserAudio.src =
+      "/api/audio/stream.wav?t=" + String(Date.now());
+    elements.browserAudio.volume = clamp(state.volume / 100, 0, 1);
+    elements.browserAudio.play().then(function () {
+      state.browserAudioPlaying = true;
+      render();
+      showMessage("Áudio tocando neste navegador.", false);
+    }).catch(function () {
+      state.browserAudioPlaying = false;
+      render();
+      showMessage(
+        "O navegador bloqueou o áudio. Toque novamente no botão ▶.",
+        true
+      );
     });
   }
 
@@ -567,6 +631,7 @@
   function startScanner() {
     var band = elements.scannerBand.value;
     var sensitivity = Number(elements.scannerSensitivity.value);
+    stopBrowserAudio();
     elements.scannerStartButton.disabled = true;
     apiRequest("/api/scanner/start", "POST", {
       band: band,
@@ -658,10 +723,26 @@
     });
 
     elements.receiverButton.addEventListener("click", toggleReceiver);
+    elements.browserAudioButton.addEventListener("click", toggleBrowserAudio);
+    elements.browserAudio.addEventListener("ended", function () {
+      state.browserAudioPlaying = false;
+      render();
+    });
+    elements.browserAudio.addEventListener("error", function () {
+      if (state.browserAudioPlaying) {
+        state.browserAudioPlaying = false;
+        render();
+        showMessage(
+          "O fluxo de áudio foi interrompido. Toque em ▶ para reconectar.",
+          true
+        );
+      }
+    });
 
     elements.volumeInput.addEventListener("input", function () {
       state.volume = Number(elements.volumeInput.value);
       elements.volumeDisplay.textContent = state.volume + "%";
+      elements.browserAudio.volume = clamp(state.volume / 100, 0, 1);
       window.clearTimeout(volumeTimer);
       volumeTimer = window.setTimeout(function () {
         sendConfiguration();

@@ -24,6 +24,16 @@ else
 fi
 
 echo "Baixando a versão mais recente..."
+if ! sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" diff --quiet \
+    || ! sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" diff --cached --quiet \
+    || [[ -n "$(sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" ls-files --others --exclude-standard)" ]]; then
+  BACKUP_NAME="estacao-radio-antes-update-$(date +%Y%m%d-%H%M%S)"
+  echo "Foram encontradas alterações locais."
+  echo "Guardando uma cópia reversível no git stash: ${BACKUP_NAME}"
+  sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" stash push \
+    --include-untracked \
+    --message "${BACKUP_NAME}"
+fi
 sudo -u "${TARGET_USER}" git -C "${PROJECT_DIR}" pull --ff-only
 
 echo "Atualizando dependências e o serviço..."

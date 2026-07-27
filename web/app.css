@@ -191,12 +191,13 @@ input:focus-visible {
 .compact-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 38px 34px;
   gap: 4px;
   align-items: end;
 }
 
 .icon-button,
+.browser-audio-button,
 .close-button {
   border: 1px solid var(--line);
   background: var(--panel-strong);
@@ -210,6 +211,27 @@ input:focus-visible {
   border-radius: 7px;
   font-size: 18px;
   line-height: 1;
+}
+
+.browser-audio-button {
+  width: 38px;
+  height: 27px;
+  border-radius: 7px;
+  color: var(--primary);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.browser-audio-button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.browser-audio-button:disabled {
+  opacity: 0.45;
 }
 
 .meter-section {

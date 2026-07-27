@@ -5,9 +5,9 @@ import atexit
 import os
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 
-from radio import RadioController, RadioError, ValidationError
+from radio import RadioController, RadioError, ValidationError, wav_stream_header
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,7 +35,7 @@ def create_app(controller=None):
 
     @app.get("/api/health")
     def health():
-        return jsonify({"ok": True, "service": "estacao-radio-web", "version": "2.0.3"})
+        return jsonify({"ok": True, "service": "estacao-radio-web", "version": "2.1.0"})
 
     @app.get("/api/status")
     def status():
@@ -59,6 +59,24 @@ def create_app(controller=None):
     @app.post("/api/receiver/stop")
     def stop_receiver():
         return jsonify(radio.stop())
+
+    @app.get("/api/audio/stream.wav")
+    def browser_audio():
+        chunks = radio.browser_audio_stream()
+
+        def generate():
+            yield wav_stream_header()
+            for chunk in chunks:
+                yield chunk
+
+        response = Response(
+            stream_with_context(generate()),
+            mimetype="audio/wav",
+        )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["X-Accel-Buffering"] = "no"
+        response.headers["Content-Disposition"] = "inline; filename=radio-ao-vivo.wav"
+        return response
 
     @app.post("/api/scanner/start")
     def start_scanner():

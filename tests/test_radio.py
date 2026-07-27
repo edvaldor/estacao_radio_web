@@ -6,7 +6,12 @@ import unittest
 os.environ["RADIO_DRIVER"] = "simulation"
 
 from app import create_app
-from radio import RadioController, SimulationDriver, ValidationError
+from radio import (
+    RadioController,
+    SimulationDriver,
+    ValidationError,
+    wav_stream_header,
+)
 from scanner import SpectrumScanner
 
 
@@ -20,7 +25,7 @@ class RadioControllerTests(unittest.TestCase):
     def test_default_status(self):
         status = self.controller.status()
         self.assertEqual(status["frequency_mhz"], 91.9)
-        self.assertEqual(status["mode"], "WFM")
+        self.assertEqual(status["mode"], "NFM")
         self.assertEqual(status["channel"], "Rádio Capital 91")
         self.assertEqual(status["driver"], "simulation")
         self.assertFalse(status["running"])
@@ -54,7 +59,7 @@ class RadioControllerTests(unittest.TestCase):
             {"frequency_mhz": 95.9, "auto_select": True}
         )
         self.assertEqual(status["band"], "fm")
-        self.assertEqual(status["mode"], "WFM")
+        self.assertEqual(status["mode"], "NFM")
         self.assertEqual(status["step_khz"], 100.0)
         self.assertEqual(status["channel"], "Cia FM")
 
@@ -65,6 +70,16 @@ class RadioControllerTests(unittest.TestCase):
         self.assertEqual(status["band"], "air")
         self.assertEqual(status["mode"], "AM")
         self.assertEqual(status["step_khz"], 25.0)
+
+    def test_fm_band_cannot_be_changed_from_nfm(self):
+        status = self.controller.configure(
+            {
+                "frequency_mhz": 91.9,
+                "band": "fm",
+                "mode": "WFM",
+            }
+        )
+        self.assertEqual(status["mode"], "NFM")
 
     def test_simulation_scanner_tunes_a_candidate(self):
         self.controller.start_scan({"band": "fm", "sensitivity_db": 8})
@@ -117,6 +132,27 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["scanner"]["active"])
 
+    def test_browser_audio_requires_real_receiver(self):
+        self.controller.start()
+        response = self.client.get("/api/audio/stream.wav")
+        self.assertEqual(response.status_code, 503)
+
+    def test_browser_audio_stream_has_wav_header_and_pcm(self):
+        class BrowserAudioDriver(SimulationDriver):
+            name = "rtl_fm"
+
+            def audio_chunks(self):
+                yield b"\x01\x00" * 32
+
+        self.controller.driver = BrowserAudioDriver()
+        self.controller.start()
+        response = self.client.get("/api/audio/stream.wav", buffered=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "audio/wav")
+        self.assertEqual(response.data[:4], b"RIFF")
+        self.assertEqual(response.data[8:12], b"WAVE")
+        self.assertEqual(response.data[44:], b"\x01\x00" * 32)
+
 
 class ScannerParserTests(unittest.TestCase):
     def test_parse_rtl_power_csv_finds_peak_above_noise(self):
@@ -135,6 +171,18 @@ class ScannerParserTests(unittest.TestCase):
             os.unlink(path)
         self.assertEqual(len(result["candidates"]), 1)
         self.assertEqual(result["candidates"][0]["frequency_mhz"], 100.2)
+
+
+class AudioFormatTests(unittest.TestCase):
+    def test_wav_header_describes_48khz_mono_s16le(self):
+        header = wav_stream_header()
+        self.assertEqual(len(header), 44)
+        self.assertEqual(header[:4], b"RIFF")
+        self.assertEqual(header[8:12], b"WAVE")
+        self.assertEqual(header[12:16], b"fmt ")
+        self.assertEqual(int.from_bytes(header[24:28], "little"), 48000)
+        self.assertEqual(int.from_bytes(header[22:24], "little"), 1)
+        self.assertEqual(int.from_bytes(header[34:36], "little"), 16)
 
 
 if __name__ == "__main__":

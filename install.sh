@@ -131,6 +131,12 @@ chmod +x \
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}"
 
+if systemctl list-unit-files estacao-radio-kiosk.service --no-legend 2>/dev/null \
+    | grep -q '^estacao-radio-kiosk.service'; then
+  echo "Atualizando o modo quiosque já instalado..."
+  SKIP_APT="${SKIP_APT:-0}" bash "${PROJECT_DIR}/scripts/install-kiosk.sh"
+fi
+
 echo
 echo "Instalação concluída."
 echo

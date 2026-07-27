@@ -166,7 +166,7 @@ class SpectrumScanner:
 def simulated_candidates(plan, station_catalog=None):
     """Resultados determinísticos para demonstração e testes sem dongle."""
     values = []
-    if station_catalog and plan["mode"] == "WFM":
+    if station_catalog and plan.get("label") == "FM comercial":
         for index, station in enumerate(
             station_catalog.within(plan["start_mhz"], plan["end_mhz"])
         ):

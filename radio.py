@@ -2,8 +2,10 @@
 
 import math
 import os
+import queue
 import random
 import shutil
+import struct
 import subprocess
 import tempfile
 import threading
@@ -18,6 +20,30 @@ from scanner import ScanCancelled, ScanError, SpectrumScanner, simulated_candida
 ALLOWED_MODES = {"AM", "NFM", "WFM"}
 MIN_FREQUENCY_MHZ = 24.0
 MAX_FREQUENCY_MHZ = 1766.0
+_AUDIO_STREAM_END = object()
+
+
+def wav_stream_header(sample_rate=48000, channels=1, bits_per_sample=16):
+    """Cabeçalho WAV para um fluxo PCM contínuo reproduzível pelo navegador."""
+    block_align = channels * bits_per_sample // 8
+    byte_rate = sample_rate * block_align
+    data_size = 0x7FFFF000
+    return struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + data_size,
+        b"WAVE",
+        b"fmt ",
+        16,
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b"data",
+        data_size,
+    )
 
 
 class RadioError(RuntimeError):
@@ -33,7 +59,7 @@ class RadioConfig:
     frequency_mhz: float = 91.9
     band: str = "fm"
     channel: str = "Rádio Capital 91"
-    mode: str = "WFM"
+    mode: str = "NFM"
     step_khz: float = 100.0
     volume: int = 65
 
@@ -55,6 +81,9 @@ class BaseDriver:
 
     def signal_metrics(self):
         return {"percent": 0.0, "dbfs": -90.0, "source": "unavailable"}
+
+    def audio_chunks(self):
+        raise RadioError("O áudio no navegador exige um receptor RTL-SDR ativo.")
 
 
 class SimulationDriver(BaseDriver):
@@ -110,6 +139,8 @@ class RTLFMDriver(BaseDriver):
         self.audio_thread = None
         self.audio_stop = threading.Event()
         self.metrics_lock = threading.Lock()
+        self.subscribers_lock = threading.RLock()
+        self.audio_subscribers = set()
         self.signal_percent = 0.0
         self.signal_dbfs = -90.0
 
@@ -214,6 +245,7 @@ class RTLFMDriver(BaseDriver):
                 if not chunk:
                     break
                 self._measure(chunk)
+                self._publish_audio(chunk)
                 audio_stdin.write(chunk)
         except (BrokenPipeError, OSError, ValueError):
             pass
@@ -222,6 +254,59 @@ class RTLFMDriver(BaseDriver):
                 audio_stdin.close()
             except (OSError, ValueError):
                 pass
+
+    def _publish_audio(self, chunk):
+        """Entrega o mesmo PCM ao ALSA e a cada navegador conectado."""
+        with self.subscribers_lock:
+            subscribers = list(self.audio_subscribers)
+        for subscriber in subscribers:
+            try:
+                subscriber.put_nowait(chunk)
+            except queue.Full:
+                # Mantém o áudio recente; um navegador lento não pode travar o rádio.
+                try:
+                    subscriber.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    subscriber.put_nowait(chunk)
+                except queue.Full:
+                    pass
+
+    def _close_audio_subscribers(self):
+        with self.subscribers_lock:
+            subscribers = list(self.audio_subscribers)
+        for subscriber in subscribers:
+            try:
+                subscriber.put_nowait(_AUDIO_STREAM_END)
+            except queue.Full:
+                try:
+                    subscriber.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    subscriber.put_nowait(_AUDIO_STREAM_END)
+                except queue.Full:
+                    pass
+
+    def audio_chunks(self):
+        subscriber = queue.Queue(maxsize=48)
+        with self.subscribers_lock:
+            self.audio_subscribers.add(subscriber)
+        try:
+            while True:
+                try:
+                    chunk = subscriber.get(timeout=8)
+                except queue.Empty:
+                    if not self.is_alive():
+                        break
+                    continue
+                if chunk is _AUDIO_STREAM_END:
+                    break
+                yield chunk
+        finally:
+            with self.subscribers_lock:
+                self.audio_subscribers.discard(subscriber)
 
     def start(self, config):
         self.stop()
@@ -310,6 +395,7 @@ class RTLFMDriver(BaseDriver):
 
     def stop(self):
         self.audio_stop.set()
+        self._close_audio_subscribers()
         self._terminate(self.rtl_process)
         if self.audio_thread and self.audio_thread.is_alive():
             self.audio_thread.join(timeout=1.0)
@@ -447,6 +533,10 @@ class RadioController:
                 config.mode = mode
             config.step_khz = self._number(payload, "step_khz", config.step_khz)
 
+        # Preferência desta estação: FM comercial permanece em NFM.
+        if config.band == "fm":
+            config.mode = "NFM"
+
         if not 0.1 <= config.step_khz <= 1000:
             raise ValidationError("O passo deve ficar entre 0,1 e 1000 kHz.")
         if "volume" in payload:
@@ -515,6 +605,18 @@ class RadioController:
             self.driver.stop()
             self.running = False
             return self.status()
+
+    def browser_audio_stream(self):
+        """Obtém PCM ao vivo sem tomar o dongle do processo principal."""
+        with self.lock:
+            if not self.running or not self.driver.is_alive():
+                raise RadioError("Inicie o receptor antes de ouvir no navegador.")
+            if self.driver.name != "rtl_fm":
+                raise RadioError(
+                    "O áudio no navegador fica disponível quando o RTL-SDR está conectado."
+                )
+            driver = self.driver
+        return driver.audio_chunks()
 
     def _deactivate_scanner(self):
         if self.scan_state["active"]:

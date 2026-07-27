@@ -18,7 +18,7 @@
         </span>
         <span class="frequency-meta">
           <span id="channelDisplay">Rádio Capital 91</span>
-          <span id="modeDisplay">WFM</span>
+          <span id="modeDisplay">NFM</span>
         </span>
       </button>
 
@@ -39,10 +39,16 @@
             <span>Modo · auto</span>
             <select id="modeSelect">
               <option value="AM">AM</option>
-              <option value="NFM">NFM</option>
-              <option value="WFM" selected>WFM</option>
+              <option value="NFM" selected>NFM</option>
+              <option value="WFM">WFM</option>
             </select>
           </label>
+
+          <button class="browser-audio-button" id="browserAudioButton" type="button"
+                  aria-label="Ouvir o rádio neste navegador" aria-pressed="false"
+                  title="Ouvir neste navegador">
+            <span aria-hidden="true" id="browserAudioIcon">▶</span>
+          </button>
 
           <button class="icon-button" id="themeButton" type="button" aria-label="Alternar modo noturno">
             <span aria-hidden="true" id="themeIcon">☾</span>
@@ -118,6 +124,7 @@
     </footer>
 
     <div class="message" id="message" role="status" aria-live="polite" hidden></div>
+    <audio id="browserAudio" preload="none"></audio>
   </main>
 
   <div class="frequency-dialog" id="frequencyDialog" role="dialog" aria-modal="true" aria-labelledby="frequencyDialogTitle" hidden>
